@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { ReminderJob, ReminderPreference } from '../models.js';
-import { asyncRoute } from '../lib/http.js';
+import { asyncRoute, publicRecord } from '../lib/http.js';
 import { getPreferences, syncJobsForUser } from '../lib/reminders.js';
 import { config } from '../config.js';
 
@@ -51,7 +51,7 @@ router.get(
       .limit(50)
       .populate('productId', 'name brand')
       .lean();
-    res.json({ jobs: jobs.map((j) => ({ ...j, id: String(j._id) })) });
+    res.json({ jobs: jobs.map(publicRecord) });
   }),
 );
 

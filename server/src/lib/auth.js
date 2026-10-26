@@ -61,7 +61,9 @@ export async function auth(req, _res, next) {
 export function sameOrigin(req, _res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   const origin = req.get('origin');
-  if (origin && origin !== config.appOrigin)
+  // Browsers send both headers on cross-site writes; non-browser clients carry no victim cookie.
+  const site = req.get('sec-fetch-site');
+  if ((origin && origin !== config.appOrigin) || (site && site !== 'same-origin'))
     return next(new HttpError(403, 'Request origin is not allowed.'));
   next();
 }

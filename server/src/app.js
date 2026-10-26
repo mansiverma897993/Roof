@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import { rateLimit } from 'express-rate-limit';
 import { auth, sameOrigin } from './lib/auth.js';
 import { errorHandler } from './lib/http.js';
 import authRoutes from './routes/auth.js';
@@ -17,10 +18,20 @@ import { config } from './config.js';
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
-  if (config.isProduction) app.set('trust proxy', 1);
+  app.set('trust proxy', config.trustProxy);
   app.use(helmet());
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
+  app.use(
+    '/api',
+    rateLimit({
+      windowMs: 15 * 60 * 1000,
+      limit: () => config.limits.apiPer15Min,
+      standardHeaders: 'draft-8',
+      legacyHeaders: false,
+      message: { error: 'Too many requests. Please try again in a few minutes.' },
+    }),
+  );
   app.use('/api', sameOrigin);
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
   app.use('/api/auth', authRoutes);

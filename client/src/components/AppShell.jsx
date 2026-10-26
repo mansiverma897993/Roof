@@ -10,6 +10,7 @@ import {
   Menu,
   Plus,
   ShieldCheck,
+  UserRound,
   X,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -20,6 +21,7 @@ const titles = {
   '/products': 'My products',
   '/documents': 'Documents',
   '/reminders': 'Reminders',
+  '/account': 'Account',
 };
 
 export default function AppShell() {
@@ -82,6 +84,13 @@ export default function AppShell() {
             className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
           >
             <BellRing size={19} /> Reminders
+          </NavLink>
+          <NavLink
+            to="/account"
+            onClick={() => setOpen(false)}
+            className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+          >
+            <UserRound size={19} /> Account
           </NavLink>
         </nav>
         <div className="sidebar-bottom">

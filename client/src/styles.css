@@ -1643,8 +1643,12 @@ p {
   margin: 0;
 }
 .reminder-settings,
-.history-panel {
+.history-panel,
+.account-panel {
   padding: 25px;
+}
+.account-panel {
+  max-width: 760px;
 }
 .settings-intro {
   color: #758b9a;

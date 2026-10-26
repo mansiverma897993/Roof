@@ -57,21 +57,21 @@ test('full account, product, receipt, contact and reminder lifecycle is private'
 
   const pdf = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
   response = await alice
-    .post(`/api/products/${productId}/receipts`)
+    .post(`/api/products/${productId}/documents`)
     .attach('file', pdf, { filename: 'invoice.pdf', contentType: 'application/pdf' });
   assert.equal(response.status, 201, JSON.stringify(response.body));
-  const receiptId = response.body.receipt.id;
+  const receiptId = response.body.document.id;
   assert.equal((await alice.get(`/api/products/${productId}/documents`)).body.documents.length, 1);
-  const retrieved = await alice.get(`/api/receipts/${receiptId}/file`);
+  const retrieved = await alice.get(`/api/documents/${receiptId}/file`);
   assert.equal(retrieved.status, 200);
   assert.match(retrieved.headers['content-type'], /application\/pdf/);
   assert.deepEqual(retrieved.body, pdf);
   assert.match(
-    (await alice.get(`/api/receipts/${receiptId}/file?download=1`)).headers['content-disposition'],
+    (await alice.get(`/api/documents/${receiptId}/file?download=1`)).headers['content-disposition'],
     /^attachment;/,
   );
-  assert.equal((await bob.get(`/api/receipts/${receiptId}/file`)).status, 404);
-  assert.equal((await bob.delete(`/api/receipts/${receiptId}`)).status, 404);
+  assert.equal((await bob.get(`/api/documents/${receiptId}/file`)).status, 404);
+  assert.equal((await bob.delete(`/api/documents/${receiptId}`)).status, 404);
 
   response = await alice.post(`/api/products/${productId}/service-centers`).send({
     name: 'Northstar Support',
@@ -123,7 +123,7 @@ test('full account, product, receipt, contact and reminder lifecycle is private'
   assert.equal((await alice.get('/api/products?search=Laptop&status=all')).body.products.length, 1);
 
   assert.equal((await alice.delete(`/api/products/${productId}`)).status, 204);
-  assert.equal((await alice.get(`/api/receipts/${receiptId}/file`)).status, 404);
+  assert.equal((await alice.get(`/api/documents/${receiptId}/file`)).status, 404);
   assert.equal((await alice.get(`/api/products/${productId}/service-centers`)).status, 404);
   assert.equal((await alice.get('/api/dashboard/summary')).body.counts.total, 0);
   assert.equal((await alice.post('/api/auth/logout')).status, 204);
@@ -199,7 +199,7 @@ test('document vault finds warranty proof and keeps it private', async () => {
   assert.equal(changed.status, 200);
   assert.equal(changed.body.document.note, 'Instructions for setup');
   assert.equal((await owner.get('/api/documents?category=manual')).body.documents.length, 1);
-  assert.equal((await owner.get(`/api/products/${productId}/receipts`)).body.receipts.length, 0);
+  assert.equal((await owner.get(`/api/products/${productId}/receipts`)).status, 404);
   assert.equal((await owner.delete(`/api/documents/${documentId}`)).status, 204);
   assert.equal((await owner.get('/api/documents')).body.documents.length, 0);
 });
@@ -215,12 +215,16 @@ test('invalid inputs and upload types return clear errors', async () => {
   assert.equal(bad.status, 400);
   const product = await agent.post('/api/products').send(productInput);
   const upload = await agent
-    .post(`/api/products/${product.body.product.id}/receipts`)
+    .post(`/api/products/${product.body.product.id}/documents`)
     .attach('file', Buffer.from('not a receipt'), 'note.txt');
   assert.equal(upload.status, 400);
   const tooLarge = await agent
     .post(`/api/products/${product.body.product.id}/documents`)
-    .attach('file', Buffer.alloc(10 * 1024 * 1024 + 1), 'too-large.pdf');
+    .attach(
+      'file',
+      Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(10 * 1024 * 1024)]),
+      'too-large.pdf',
+    );
   assert.equal(tooLarge.status, 400);
   assert.match(tooLarge.body.error, /10 MB/);
   assert.equal(

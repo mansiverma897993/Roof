@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Product, Receipt, ServiceCenter, ReminderJob } from '../models.js';
-import { asyncRoute, HttpError, objectId } from '../lib/http.js';
+import { asyncRoute, escapeRegex, HttpError, objectId, publicRecord } from '../lib/http.js';
 import { calculateEndDate, statusFor, todayIn, validDate } from '../lib/dates.js';
 import { syncJobsForProduct } from '../lib/reminders.js';
 import { deleteReceiptFile } from '../db.js';
+import { config } from '../config.js';
 
 const router = Router();
 const input = z.object({
@@ -43,7 +44,7 @@ function normalized(body) {
 
 function toResponse(product, today) {
   const p = product.toObject ? product.toObject() : product;
-  return { ...p, id: String(p._id), status: statusFor(p, today) };
+  return { ...publicRecord(p), status: statusFor(p, today) };
 }
 
 router.get(
@@ -57,7 +58,7 @@ router.get(
       throw new HttpError(400, 'Invalid status filter.');
     const query = { userId: req.user._id };
     if (search) {
-      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const safe = escapeRegex(search);
       query.$or = [
         { name: { $regex: safe, $options: 'i' } },
         { brand: { $regex: safe, $options: 'i' } },
@@ -77,7 +78,10 @@ router.get(
 router.post(
   '/',
   asyncRoute(async (req, res) => {
-    const product = await Product.create({ ...normalized(req.body), userId: req.user._id });
+    const data = normalized(req.body);
+    if ((await Product.countDocuments({ userId: req.user._id })) >= config.limits.maxProducts)
+      throw new HttpError(403, `You can track up to ${config.limits.maxProducts} products.`);
+    const product = await Product.create({ ...data, userId: req.user._id });
     await syncJobsForProduct(product, req.user);
     res.status(201).json({ product: toResponse(product, todayIn(req.user.timeZone)) });
   }),

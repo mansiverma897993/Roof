@@ -9,6 +9,8 @@ const userSchema = new Schema(
     email: { type: String, required: true, lowercase: true, trim: true, unique: true },
     passwordHash: { type: String, required: true },
     timeZone: { type: String, default: 'Asia/Kolkata' },
+    failedLogins: { type: Number, default: 0 },
+    loginLockedUntil: { type: Date, default: null },
   },
   { timestamps: true },
 );

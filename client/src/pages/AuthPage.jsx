@@ -150,9 +150,9 @@ export default function AuthPage({ mode }) {
                   name="password"
                   value={form.password}
                   onChange={update}
-                  placeholder={registerMode ? 'At least 8 characters' : 'Enter your password'}
+                  placeholder={registerMode ? 'At least 10 characters' : 'Enter your password'}
                   required
-                  minLength={8}
+                  minLength={registerMode ? 10 : undefined}
                   autoComplete={registerMode ? 'new-password' : 'current-password'}
                 />
                 <button
