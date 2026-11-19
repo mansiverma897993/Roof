@@ -12,6 +12,7 @@ import ProductFormPage from './pages/ProductFormPage';
 import ProductDetailPage from './pages/ProductDetailPage';
 import RemindersPage from './pages/RemindersPage';
 import DocumentsPage from './pages/DocumentsPage';
+import AccountPage from './pages/AccountPage';
 import './styles.css';
 
 function Protected() {
@@ -60,6 +61,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/products/:id/edit" element={<ProductFormPage />} />
             <Route path="/documents" element={<DocumentsPage />} />
             <Route path="/reminders" element={<RemindersPage />} />
+            <Route path="/account" element={<AccountPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

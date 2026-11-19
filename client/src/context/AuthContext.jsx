@@ -28,8 +28,12 @@ export function AuthProvider({ children }) {
     await api('/auth/logout', { method: 'POST' });
     setUser(null);
   };
+  const deleteAccount = async (password) => {
+    await api('/auth/me', { method: 'DELETE', body: { password } });
+    setUser(null);
+  };
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

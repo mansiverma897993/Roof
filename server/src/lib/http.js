@@ -16,6 +16,14 @@ export function objectId(value) {
   return value;
 }
 
+export const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Strips owner and storage internals before a record is sent to the browser.
+export function publicRecord(record) {
+  const { userId, __v, gridFsFileId, lockedUntil, ...rest } = record;
+  return { ...rest, id: String(record._id) };
+}
+
 export function errorHandler(error, _req, res, _next) {
   if (error instanceof ZodError) {
     return res.status(400).json({

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Product, ServiceCenter } from '../models.js';
-import { asyncRoute, HttpError, objectId } from '../lib/http.js';
+import { asyncRoute, HttpError, objectId, publicRecord } from '../lib/http.js';
+import { config } from '../config.js';
 
 const router = Router();
 const input = z.object({
@@ -29,7 +30,7 @@ router.get(
     })
       .sort({ createdAt: -1 })
       .lean();
-    res.json({ contacts: contacts.map((c) => ({ ...c, id: String(c._id) })) });
+    res.json({ contacts: contacts.map(publicRecord) });
   }),
 );
 
@@ -37,12 +38,22 @@ router.post(
   '/products/:productId/service-centers',
   asyncRoute(async (req, res) => {
     await ownedProduct(req);
-    const contact = await ServiceCenter.create({
-      ...input.parse(req.body),
+    const data = input.parse(req.body);
+    const existing = await ServiceCenter.countDocuments({
       productId: req.params.productId,
       userId: req.user._id,
     });
-    res.status(201).json({ contact: { ...contact.toObject(), id: contact.id } });
+    if (existing >= config.limits.maxContactsPerProduct)
+      throw new HttpError(
+        403,
+        `A product can have up to ${config.limits.maxContactsPerProduct} service contacts.`,
+      );
+    const contact = await ServiceCenter.create({
+      ...data,
+      productId: req.params.productId,
+      userId: req.user._id,
+    });
+    res.status(201).json({ contact: publicRecord(contact.toObject()) });
   }),
 );
 
@@ -56,7 +67,7 @@ router.patch(
     if (!contact) throw new HttpError(404, 'Contact not found.');
     Object.assign(contact, input.parse(req.body));
     await contact.save();
-    res.json({ contact: { ...contact.toObject(), id: contact.id } });
+    res.json({ contact: publicRecord(contact.toObject()) });
   }),
 );
 

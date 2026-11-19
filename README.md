@@ -16,7 +16,7 @@ _Dashboard view before products and documents are added._
 
 | Area              | What Roof does                                                                                                                                              |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accounts          | Register, sign in, and sign out. Each user's products, documents, contacts, and reminders are isolated from other accounts.                                 |
+| Accounts          | Register, sign in, sign out, change your password, and delete your account with all its data. Each user's records are isolated from other accounts.         |
 | Products          | Add, search, filter, edit, and delete products with purchase details, warranty terms, and notes.                                                            |
 | Warranty tracking | Calculate an end date from a start date and duration, or enter the manufacturer's stated end date. Show active, expiring, expired, and incomplete coverage. |
 | Document vault    | Upload and privately preview or download PDF, PNG, and JPEG proof. Search across products and filter by document type.                                      |
@@ -119,6 +119,9 @@ All server settings belong in `server/.env`. See [`server/.env.example`](server/
 | `SMTP_USER`, `SMTP_PASS` | SMTP authentication when your provider requires it         | Unset                            |
 | `SMTP_FROM`              | Sender address shown on reminder emails                    | `Roof <no-reply@example.com>`    |
 | `WORKER_INTERVAL_MS`     | Time between reminder checks                               | `60000`                          |
+| `TRUST_PROXY`            | Number of reverse proxies in front of Express              | `0` (`1` in production)          |
+
+Per-account limits (products, documents, storage, contacts, request rates, sign-in lockout) live in `config.limits` in [`server/src/config.js`](server/src/config.js).
 
 The local and demo commands provide their own MongoDB instances; they still read other settings from `server/.env`. `npm run local` automatically captures reminder emails at `http://localhost:8025` when `SMTP_HOST` is unset. If `SMTP_HOST` is set, it sends using that provider instead. **Real inbox delivery requires working SMTP credentials.** With `npm run dev` or `npm run demo`, leaving `SMTP_HOST` unset causes due attempts to be retried or marked failed rather than sent.
 
@@ -155,23 +158,53 @@ All routes below are under `/api`. Private routes require a valid session cookie
 
 | Area             | Routes                                                                                                                |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Authentication   | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`                                        |
+| Authentication   | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET/DELETE /auth/me`, `POST /auth/password`          |
 | Products         | `GET/POST /products`, `GET/PATCH/DELETE /products/:id`                                                                |
 | Documents        | `GET /documents`, `GET/POST /products/:productId/documents`, `PATCH/DELETE /documents/:id`, `GET /documents/:id/file` |
 | Dashboard        | `GET /dashboard/summary`                                                                                              |
 | Reminders        | `GET/PUT /reminder-preferences`, `GET /reminders/history`                                                             |
 | Service contacts | `GET/POST /products/:productId/service-centers`, `PATCH/DELETE /service-centers/:id`                                  |
 
-The older receipt-specific routes remain available for receipt records.
+The older `/receipts` routes have been removed; use the `/documents` routes, which cover receipts as a document type.
 
 ## Data rules and privacy
 
-- Passwords are hashed. Sessions use random tokens stored as hashes in MongoDB and sent in `HttpOnly`, `SameSite=Strict` cookies. Sign-in endpoints are rate limited.
-- Every private route checks the account owner. Document files are streamed through authenticated endpoints; GridFS is not publicly exposed.
-- Uploads are limited to **10 MB per file** and accepted only when their file signatures match PDF, PNG, or JPEG.
+- Passwords are hashed with bcrypt and must be 10 characters to 72 bytes. Sessions use random tokens stored as hashes in MongoDB and sent in `HttpOnly`, `SameSite=Strict` cookies. Changing your password signs out every other device.
+- Sign-in is rate limited per IP, and an account pauses sign-in for 15 minutes after 5 wrong passwords. Failed sign-ins always return the same message and take the same time, whether or not the account exists.
+- Every private route checks the account owner. Document files are streamed through authenticated endpoints; GridFS is not publicly exposed. API responses leave out internal owner and storage IDs.
+- Uploads are limited to **10 MB per file**, streamed straight into GridFS, and accepted only when their file signatures match PDF, PNG, or JPEG. Ownership and account quotas are checked before any bytes are read.
+- Each account can hold up to 500 products, 1,000 documents, 500 MB of files, and 20 service contacts per product.
+- Deleting your account permanently removes its products, documents, files, contacts, reminders, and sessions.
 - A calculated warranty ends on the day before the start date's anniversary after the entered number of calendar months. A supplied manufacturer end date takes precedence. Coverage stays active through its end date; the final 30 days appear as **expiring**.
 - Reminder times use the user's time zone. The worker tracks pending, sent, retried, failed, and cancelled jobs. SMTP acceptance followed by a worker crash can still result in a retry, so external email delivery is not guaranteed to be exactly once.
 - `.env`, `.local-mongo/`, `.local-mail/`, build output, and dependencies are excluded from Git.
+
+## Security hardening
+
+A security review found no injection, authentication bypass, or cross-account access. It did find the issues below, which are now fixed. Each fix is covered by [`server/test/security.test.js`](server/test/security.test.js).
+
+| Risk   | Issue                                                                                                                      | Fix                                                                                                                                                                      |
+| ------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| High   | Uploads were buffered fully in memory before ownership was checked, so parallel 10 MB uploads could exhaust server memory. | A custom multer storage engine streams uploads into GridFS while checking the file signature. Ownership and quotas are checked first; uploads are rate limited per user. |
+| High   | Dependency advisories in `multer` and `body-parser` (denial of service).                                                   | Updated to patched versions; CI fails on new high-severity advisories.                                                                                                   |
+| Medium | Sign-in limits were per IP only, so attackers spread across many IPs could keep guessing one account's password.           | Per-account lockout stored in MongoDB, so it works across processes and IPs.                                                                                             |
+| Medium | Unknown emails were answered faster than wrong passwords, revealing which accounts exist.                                  | Login always runs a bcrypt comparison and returns one message for every failure.                                                                                         |
+| Medium | No per-account limits on products, documents, storage, or contacts.                                                        | Quotas in `config.limits`, plus a general API rate limit.                                                                                                                |
+| Low    | The origin check allowed writes with no `Origin` header.                                                                   | Writes are also refused when the browser's `Sec-Fetch-Site` header shows a cross-site request.                                                                           |
+| Low    | Responses included `userId`, `__v`, and GridFS file IDs.                                                                   | Records are stripped of internal fields before they are sent.                                                                                                            |
+| Low    | 8-character minimum, and passwords over 72 bytes were silently truncated by bcrypt.                                        | New passwords need 10 characters and at most 72 bytes. Existing accounts can still sign in with their current password.                                                  |
+| Low    | `trust proxy` was fixed at 1, so extra proxy hops would let clients spoof their IP for rate limits.                        | Configurable with `TRUST_PROXY`.                                                                                                                                         |
+| Low    | Unused legacy `/receipts` routes widened the API.                                                                          | Removed.                                                                                                                                                                 |
+| Bug    | Non-Latin file names (for example Hindi) were stored garbled, and downloading them could fail.                             | Names are read as UTF-8 and sent with an RFC 5987 `filename*` header.                                                                                                    |
+| Gap    | No way to change a password or delete an account and its data.                                                             | Added to the new **Account** page.                                                                                                                                       |
+
+The document vault search now runs in MongoDB instead of loading every document into memory.
+
+**Known limitations**
+
+- Registering with an email that is already in use says so. Hiding this needs email verification, which Roof does not have yet. The sign-in rate limit slows anyone checking many emails.
+- Rate-limit counters are kept in memory per API process. If you run more than one API process, use a shared store such as Redis. The per-account lockout is stored in MongoDB and is not affected.
+- A lockout can be triggered on purpose by someone who knows an email address. It lasts 15 minutes.
 
 ## Testing
 
@@ -180,7 +213,7 @@ npm test
 npm run build
 ```
 
-The server tests cover date rules, account isolation, product and document operations, contacts, dashboard results, validation, and reminder processing. The client test covers warranty date preview. Tests use temporary MongoDB and a local SMTP server; they do not require real inbox credentials.
+The server tests cover date rules, account isolation, product and document operations, contacts, dashboard results, validation, reminder processing, and the security protections above. The client test covers warranty date preview. Tests use temporary MongoDB and a local SMTP server; they do not require real inbox credentials. GitHub Actions runs the dependency audit, tests, and build on every push to `main` and every pull request.
 
 ### Troubleshooting
 
@@ -201,14 +234,15 @@ server/src/lib/         Authentication, dates, and reminder logic
 server/src/models.js    Mongoose schemas
 server/src/worker.js    Email reminder worker
 server/src/local.js     Persistent local app runner
-server/test/            API and date tests
+server/test/            API, security, and date tests
 server/.env.example     Server configuration template
+.github/workflows/      Continuous integration
 docs/                  Operations and project documentation
 Warranty_Receipt_Vault_Architecture.pdf   Initial architecture document
 ```
 
 ## Deployment notes
 
-Build the frontend with `npm run build`, configure a persistent MongoDB and real SMTP provider, and run the API (`npm run start`) and worker (`npm run worker -w server`) as supervised processes. Express serves `client/dist/` alongside `/api`. Set `NODE_ENV=production` and `APP_ORIGIN` to the site's exact HTTPS origin. Serve the app behind HTTPS so production session cookies work, and back up both MongoDB collections and GridFS files. Follow the [backup and recovery guide](docs/OPERATIONS.md). Keep `server/.env`, `.local-mongo/`, and `node_modules/` out of Git.
+Build the frontend with `npm run build`, configure a persistent MongoDB and real SMTP provider, and run the API (`npm run start`) and worker (`npm run worker -w server`) as supervised processes. Express serves `client/dist/` alongside `/api`. Set `NODE_ENV=production` and `APP_ORIGIN` to the site's exact HTTPS origin, and set `TRUST_PROXY` to the number of proxies in front of Express. Serve the app behind HTTPS so production session cookies work, and back up both MongoDB collections and GridFS files. Follow the [backup and recovery guide](docs/OPERATIONS.md). Keep `server/.env`, `.local-mongo/`, and `node_modules/` out of Git.
 
 The [architecture PDF](Warranty_Receipt_Vault_Architecture.pdf) documents the initial requirements and design. The searchable document vault is an extension of that initial scope.
