@@ -247,11 +247,27 @@ export default function ProductsPage() {
                 : 'Add your first purchase to start keeping everything in one place.'
             }
             action={
-              !query && status === 'all' ? (
+              query || status !== 'all' ? (
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => {
+                    setSearch('');
+                    setParams((p) => {
+                      const next = new URLSearchParams(p);
+                      next.delete('search');
+                      next.delete('status');
+                      return next;
+                    });
+                  }}
+                >
+                  <X size={17} /> Clear filters
+                </button>
+              ) : (
                 <Link to="/products/new" className="button button-primary">
                   <Plus size={17} /> Add product
                 </Link>
-              ) : null
+              )
             }
           />
         )}
